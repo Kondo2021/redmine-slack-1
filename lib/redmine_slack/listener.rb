@@ -11,7 +11,7 @@ class Listener < Redmine::Hook::Listener
 		return unless channel and url
 		return if issue.is_private?
 
-		msg = "[#{escape issue.project}] #{escape issue.author} created <#{object_url issue}|#{escape issue}>#{mentions issue.description}"
+		msg = "[#{escape issue.project}] #{escape issue.author} created <#{object_url issue}|#{escape issue}>#{mentions issue.description}#{assignee_mention issue}#{watchers_mention issue}"
 
 		attachment = {}
 		attachment[:text] = escape issue.description if issue.description
@@ -28,6 +28,22 @@ class Listener < Redmine::Hook::Listener
 			:value => escape(issue.assigned_to.to_s),
 			:short => true
 		}]
+
+		if issue.estimated_hours
+			attachment[:fields] << {
+				:title => I18n.t("field_estimated_hours"),
+				:value => escape(issue.estimated_hours.to_s),
+				:short => true
+			}
+		end
+
+		if issue.spent_hours && issue.spent_hours > 0
+			attachment[:fields] << {
+				:title => I18n.t("field_spent_time"),
+				:value => escape(issue.spent_hours.to_s),
+				:short => true
+			}
+		end
 
 		attachment[:fields] << {
 			:title => I18n.t("field_watcher"),
@@ -49,7 +65,7 @@ class Listener < Redmine::Hook::Listener
 		return if issue.is_private?
 		return if journal.private_notes?
 
-		msg = "[#{escape issue.project}] #{escape journal.user.to_s} updated <#{object_url issue}|#{escape issue}>#{mentions journal.notes}"
+		msg = "[#{escape issue.project}] #{escape journal.user.to_s} updated <#{object_url issue}|#{escape issue}>#{mentions journal.notes}#{assignee_mention issue}#{watchers_mention issue}"
 
 		attachment = {}
 		attachment[:text] = escape journal.notes if journal.notes
@@ -293,6 +309,32 @@ private
 		# slack usernames may only contain lowercase letters, numbers,
 		# dashes and underscores and must start with a letter or number.
 		text.scan(/@[a-z0-9][a-z0-9_\-\.]*/).uniq
+	end
+
+	def assignee_mention issue
+		return nil unless issue.assigned_to
+		slack_username = get_slack_username(issue.assigned_to)
+		return nil unless slack_username
+		"\n@#{slack_username}"
+	end
+
+	def watchers_mention issue
+		return nil unless issue.watcher_users.any?
+		watcher_mentions = issue.watcher_users.map do |watcher|
+			slack_username = get_slack_username(watcher)
+			"@#{slack_username}" if slack_username
+		end.compact
+		return nil if watcher_mentions.empty?
+		"\n#{watcher_mentions.join(' ')}"
+	end
+
+	def get_slack_username user
+		return nil unless user
+		cf = UserCustomField.find_by_name("Slack Username")
+		return nil unless cf
+		slack_username = user.custom_value_for(cf).try(:value)
+		return nil if slack_username.blank?
+		slack_username.gsub('@', '')
 	end
 end
 end
